@@ -170,6 +170,22 @@ function readBody(req) {
 }
 
 /**
+ * ของที่เครื่องนี้ต้องมีก่อนถึงจะ deploy ได้ — หน้า UI เองไม่ต้องใช้ dependency
+ * เลยเปิดดูได้ตั้งแต่ยังไม่ได้ npm install
+ *
+ * @returns {{node: string, nodeOk: boolean, wrangler: boolean}}
+ */
+function envStatus() {
+  const bin = join(ROOT, "node_modules", ".bin", "wrangler");
+
+  return {
+    node: process.versions.node,
+    nodeOk: Number(process.versions.node.split(".")[0]) >= 20,
+    wrangler: existsSync(bin) || existsSync(bin + ".cmd"),
+  };
+}
+
+/**
  * ใครล็อกอิน Cloudflare อยู่ และเข้าถึงบัญชีไหนได้บ้าง
  *
  * @returns {{loggedIn: boolean, email: string, accounts: Array<{name: string, id: string}>}}
@@ -294,7 +310,7 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/api/state") {
-    json(res, 200, { sites: listSites(), prefs: prefs() });
+    json(res, 200, { sites: listSites(), prefs: prefs(), env: envStatus() });
 
     return;
   }
@@ -407,6 +423,11 @@ const server = createServer(async (req, res) => {
     }
     if (step === "login") {
       stream(res, "npx", ["wrangler", "login"], { shell: true });
+
+      return;
+    }
+    if (step === "install") {
+      stream(res, "npm", ["install", "--no-audit", "--no-fund"], { shell: true });
 
       return;
     }

@@ -346,10 +346,19 @@
   <section class="step" id="step-2">
     <div class="rail"><div class="badge">2</div><div class="line"></div></div>
     <div class="card">
-      <h2>เชื่อมบัญชี Cloudflare <span class="chip" id="chip-2">กำลังเช็ก</span></h2>
-      <p class="hint">ต้องล็อกอินก่อนถึงจะขึ้นเว็บได้ ล็อกอินครั้งเดียวใช้ได้ทุกเว็บ</p>
+      <h2>เตรียมเครื่อง + เชื่อมบัญชี Cloudflare <span class="chip" id="chip-2">กำลังเช็ก</span></h2>
+      <p class="hint">ทำครั้งเดียวต่อเครื่อง ใช้ได้กับทุกเว็บหลังจากนั้น</p>
 
       <div class="who">
+        <span class="dot" id="env-dot"></span>
+        <span id="env-who">กำลังตรวจเครื่อง…</span>
+      </div>
+
+      <div class="row" id="row-install" hidden>
+        <button id="btn-install">ติดตั้งเครื่องมือ (npm install)</button>
+      </div>
+
+      <div class="who" style="margin-top:16px">
         <span class="dot" id="cf-dot"></span>
         <span id="cf-who">กำลังตรวจสถานะ…</span>
       </div>
@@ -419,7 +428,7 @@
 <script>
   const $ = (id) => document.getElementById(id);
 
-  let state = { sites: [], prefs: {} };
+  let state = { sites: [], prefs: {}, env: { node: "", nodeOk: true, wrangler: false } };
   let cf = { loggedIn: false, email: "", accounts: [] };
   let uploaded = "";
   let deployed = false;
@@ -518,7 +527,7 @@
   }
 
   function setBusy(on) {
-    for (const id of ["btn-verify", "btn-preview", "btn-deploy", "btn-save", "btn-login", "btn-cf-refresh"]) {
+    for (const id of ["btn-verify", "btn-preview", "btn-deploy", "btn-save", "btn-login", "btn-cf-refresh", "btn-install"]) {
       $(id).disabled = on;
     }
     $("btn-unpack").disabled = on || !uploaded;
@@ -540,16 +549,18 @@
   function paintSteps() {
     const s = currentSite();
 
+    const ready2 = cf.loggedIn && state.env.wrangler;
+
     const done = [
       Boolean(s?.hasDist),
-      cf.loggedIn,
+      ready2,
       Boolean(s?.account_id && s?.target_domain),
       deployed,
     ];
 
     const labels = [
       s?.hasDist ? "แตกไฟล์แล้ว" : "รออยู่",
-      cf.loggedIn ? "ล็อกอินแล้ว" : "ยังไม่ล็อกอิน",
+      ready2 ? "พร้อมแล้ว" : !state.env.wrangler ? "ยังไม่ได้ติดตั้ง" : "ยังไม่ล็อกอิน",
       s?.account_id && s?.target_domain ? "ตั้งค่าแล้ว" : "รออยู่",
       deployed ? "ขึ้นเว็บแล้ว" : "รออยู่",
     ];
@@ -565,7 +576,7 @@
       if (!done[i]) activeSet = true;
 
       chip.textContent = labels[i];
-      chip.className = "chip" + (done[i] ? " ok" : i === 1 && !cf.loggedIn ? " warn" : "");
+      chip.className = "chip" + (done[i] ? " ok" : i === 1 ? " warn" : "");
       el.querySelector(".badge").textContent = done[i] ? "✓" : String(i + 1);
     }
   }
@@ -610,8 +621,22 @@
     pick.value = cf.accounts.some((a) => a.id === current) ? current : "";
   }
 
+  function paintEnv() {
+    const e = state.env || {};
+
+    $("env-dot").className = "dot " + (e.wrangler && e.nodeOk ? "on" : "off");
+    $("row-install").hidden = Boolean(e.wrangler);
+
+    const node = `Node ${e.node}${e.nodeOk ? "" : " — เก่าเกินไป ต้อง 20 ขึ้นไป"}`;
+
+    $("env-who").innerHTML = e.wrangler
+      ? `เครื่องพร้อม: <b>wrangler ติดตั้งแล้ว</b> · ${escapeHtml(node)}`
+      : `<b>ยังไม่ได้ติดตั้ง wrangler</b> — กดปุ่มด้านล่างครั้งเดียวจบ · ${escapeHtml(node)}`;
+  }
+
   async function load() {
     state = await (await fetch("/api/state")).json();
+    paintEnv();
 
     const current = $("site").value;
     $("site").innerHTML = state.sites.length
@@ -861,6 +886,22 @@
   $("btn-unpack").addEventListener("click", unpack);
 
   // --- ขั้นที่ 2 ---
+
+  $("btn-install").addEventListener("click", async () => {
+    log("ติดตั้งเครื่องมือ…", true);
+    const { code, lines } = await run("install", {});
+
+    await load();
+
+    await swal({
+      icon: state.env.wrangler ? "success" : "error",
+      title: state.env.wrangler ? "ติดตั้งเสร็จแล้ว" : "ติดตั้งไม่สำเร็จ",
+      html: state.env.wrangler
+        ? `<p>ลง wrangler เรียบร้อย เครื่องนี้ไม่ต้องทำข้อนี้อีก</p>
+           <p style="margin:8px 0 0">ต่อไปกดล็อกอิน Cloudflare ด้านล่างได้เลย</p>`
+        : `<p>จบด้วยรหัส ${code} — อ่านข้อความในกล่อง log</p>${bullets(lines.filter((l) => l.trim()).slice(-4), 4)}`,
+    });
+  });
 
   $("btn-cf-refresh").addEventListener("click", loadCf);
 

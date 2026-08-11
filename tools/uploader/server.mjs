@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,6 +50,33 @@ const ANSI = /\x1b\[[0-9;]*m/g;
  *
  * @returns {Promise<{path: string, bytes: number}>}
  */
+/**
+ * ล้างไฟล์ zip ที่พักไว้ คืนข้อความสรุปไว้ต่อท้าย log
+ *
+ * @returns {string}
+ */
+function clearUploads() {
+  if (!existsSync(UPLOADS)) {
+    return "";
+  }
+
+  let bytes = 0;
+  let count = 0;
+
+  for (const name of readdirSync(UPLOADS)) {
+    try {
+      bytes += statSync(join(UPLOADS, name)).size;
+      count++;
+    } catch {
+      /* อ่านขนาดไม่ได้ก็ยังลบได้ */
+    }
+  }
+
+  rmSync(UPLOADS, { recursive: true, force: true });
+
+  return count ? `ลบ zip ที่พักไว้แล้ว ${count} ไฟล์ (คืนพื้นที่ ${(bytes / 1024 / 1024).toFixed(1)} MB)` : "";
+}
+
 function receiveUpload(req, name) {
   return new Promise((done, fail) => {
     rmSync(UPLOADS, { recursive: true, force: true });
@@ -239,6 +266,15 @@ function stream(res, cmd, args, opts = {}) {
   child.stderr.on("data", pump);
 
   child.on("close", (code) => {
+    if (typeof opts.onDone === "function") {
+      try {
+        const note = opts.onDone(code);
+        if (note) send("line", note);
+      } catch {
+        /* งานเก็บกวาดพังไม่ควรทำให้ผลของขั้นตอนหลักเปลี่ยน */
+      }
+    }
+
     send("done", { code });
     res.end();
   });
@@ -404,7 +440,7 @@ const server = createServer(async (req, res) => {
     const slug = url.searchParams.get("slug") || "";
     const zip = url.searchParams.get("zip") || "";
 
-    const tool = (script, args) => stream(res, process.execPath, [join(ROOT, "tools", script), ...args]);
+    const tool = (script, args, opts) => stream(res, process.execPath, [join(ROOT, "tools", script), ...args], opts);
 
     if (step === "unpack") {
       tool("unpack.mjs", zip ? [zip] : []);
@@ -417,7 +453,11 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (step === "deploy") {
-      tool("deploy.mjs", [slug]);
+      // ขึ้นเว็บแล้ว zip ต้นทางไม่มีประโยชน์อีก — ปล่อยไว้กินดิสก์เปล่าๆ
+      // เว็บที่รูปเยอะๆ ไฟล์เดียวหลายร้อย MB
+      tool("deploy.mjs", [slug], {
+        onDone: (code) => (code === 0 ? clearUploads() : ""),
+      });
 
       return;
     }
@@ -448,8 +488,23 @@ server.listen(PORT, "127.0.0.1", () => {
   เปิดที่  http://localhost:${PORT}
   ตัวอย่างเว็บ  http://localhost:${PREVIEW_PORT}
 
-  ปิดด้วย Ctrl+C
+  ปิดด้วย Ctrl+C หรือปิดหน้าต่างนี้
 `);
+
+  // --open ใช้ตอนดับเบิลคลิกไฟล์ .cmd ซึ่งคนกดไม่ได้จ้องหน้าต่างดำอยู่
+  if (process.argv.includes("--open")) {
+    spawn("cmd", ["/c", "start", "", `http://localhost:${PORT}`], { detached: true, stdio: "ignore" }).unref();
+  }
+});
+
+server.on("error", (e) => {
+  if (e.code === "EADDRINUSE") {
+    console.error(`\n  พอร์ต ${PORT} ถูกใช้อยู่แล้ว — น่าจะเปิดหน้าควบคุมค้างไว้อีกหน้าต่างหนึ่ง`);
+    console.error(`  ปิดหน้าต่างนั้นก่อน หรือเปิด http://localhost:${PORT} ที่มีอยู่แล้วใช้ต่อได้เลย\n`);
+    process.exit(1);
+  }
+
+  throw e;
 });
 
 previewServer.listen(PREVIEW_PORT, "127.0.0.1");

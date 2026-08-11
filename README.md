@@ -32,11 +32,14 @@ tar --version   # Windows 10/11 มีมาให้อยู่แล้ว �
 ```powershell
 git clone git@gitlab.com:tardev-group/wordpress-static.git C:\wordpress\wp-project
 cd C:\wordpress\wp-project
-npm install
+npm run ui
 ```
 
-`npm install` ลงแค่ `wrangler` ตัวเดียว (37 packages) ตัวเครื่องมือทั้งหมดเขียนด้วย
-`node:*` ล้วน ไม่มี dependency อื่น
+**ยังไม่ต้อง `npm install`** — หน้าควบคุมไม่มี dependency เลย เปิดได้ทันที
+แล้วในขั้นที่ 2 ของหน้านั้นมีปุ่ม **"ติดตั้งเครื่องมือ (npm install)"** ให้กด
+พร้อมบอกเวอร์ชัน Node และสถานะ wrangler ให้เห็นว่าเครื่องพร้อมหรือยัง
+
+จะพิมพ์ `npm install` เองก็ได้ผลเหมือนกัน — มันลงแค่ `wrangler` ตัวเดียว (37 packages)
 
 **ไม่ต้องลง PHP** ในเครื่องนี้ — PHP ใช้ที่เซิร์ฟเวอร์ของลูกค้าเท่านั้น
 

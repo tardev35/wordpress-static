@@ -1,0 +1,20 @@
+{
+  "name": "wp-static-export-tools",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "รับ ZIP จาก plugin WP Static Export แล้วตรวจ + deploy ขึ้น Cloudflare Workers",
+  "scripts": {
+    "ui": "node tools/uploader/server.mjs",
+    "unpack": "node tools/unpack.mjs",
+    "verify": "node tools/verify-export.mjs",
+    "deploy": "node tools/deploy.mjs",
+    "zip:plugin": "node tools/zip-plugin.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "wrangler": "^4.114.0"
+  }
+}

@@ -1,0 +1,261 @@
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { C, hostOf, readJson } from "./lib.mjs";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+// เพดานของ Cloudflare Workers Static Assets แผนฟรี ชนเมื่อไหร่ deploy ไม่ผ่าน
+const FILE_LIMIT = 20000;
+const FILE_SIZE_LIMIT = 25 * 1024 * 1024;
+
+const TEXT = /\.(html?|xml|css|js|mjs|json|txt|svg)$/i;
+const PAGE = /\.html?$/i;
+
+// ลิงก์หลังบ้าน WP ถูกฟ้องไปแล้วในข้อของมันเอง ไม่ต้องนับซ้ำเป็นลิงก์ตาย
+// ส่วน /cdn-cgi/ เป็นของ Cloudflare เอง (email obfuscation ฯลฯ) ซึ่งถูกดักที่ edge
+// ก่อนถึง Worker เสมอ จึงใช้งานได้จริงบนโดเมนปลายทาง ไม่ใช่ลิงก์ตาย
+const WP_ONLY = /wp-admin|wp-login\.php|xmlrpc\.php|wp-json|wp-cron\.php|^\/cdn-cgi\//i;
+
+const slug = process.argv.slice(2).find((a) => !a.startsWith("-"));
+
+if (!slug) {
+  console.log(`
+  node tools/verify-export.mjs <slug>
+
+  ตรวจ sites/<slug>/dist/ ก่อน deploy — อ่านอย่างเดียว ไม่แก้ไฟล์
+  มี error แม้แต่ข้อเดียวคือห้าม deploy
+`);
+  process.exit(0);
+}
+
+const siteDir = join(ROOT, "sites", slug);
+const dist = join(siteDir, "dist");
+
+if (!existsSync(dist)) {
+  console.error(`\n${C.red("หยุด")} ไม่พบ ${dist} — แตก zip ด้วย tools/unpack.mjs ก่อน\n`);
+  process.exit(1);
+}
+
+let site = {};
+if (existsSync(join(siteDir, "site.json"))) {
+  site = readJson(join(siteDir, "site.json"));
+}
+
+const originHost = hostOf(site.origin);
+const targetHost = hostOf(site.target_domain);
+
+const errors = [];
+const warnings = [];
+const error = (where, msg) => errors.push({ where, msg });
+const warn = (where, msg) => warnings.push({ where, msg });
+
+function walk(dir, out = []) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) walk(p, out);
+    else out.push(p);
+  }
+  return out;
+}
+
+const files = walk(dist);
+const rels = files.map((f) => f.slice(dist.length + 1).split("\\").join("/"));
+const present = new Set(rels);
+
+console.log(`\n${C.bold("verify-export")} — ${rels.length} ไฟล์ใน sites/${slug}/dist`);
+console.log(C.dim(`  ต้นทาง ${originHost || "?"}  →  ปลายทาง ${targetHost || "?"}`));
+
+// --- เพดานของ Workers ---
+
+if (rels.length > FILE_LIMIT) {
+  error("dist/", `${rels.length} ไฟล์ — เกินเพดาน ${FILE_LIMIT} ไฟล์ต่อ Worker`);
+}
+
+let total = 0;
+for (const f of files) {
+  const size = statSync(f).size;
+  total += size;
+  if (size > FILE_SIZE_LIMIT) {
+    error(f.slice(dist.length + 1), `ไฟล์ใหญ่ ${(size / 1024 / 1024).toFixed(1)} MB — เกิน 25 MiB ต่อไฟล์`);
+  }
+}
+
+// --- ไฟล์ที่ต้องมี ---
+
+if (!present.has("index.html")) {
+  error("dist/", "ไม่มี index.html ที่ราก — หน้าแรกหาย");
+}
+if (!present.has("404.html")) {
+  error("dist/", 'ไม่มี 404.html — not_found_handling = "404-page" จะไม่มีอะไรให้เสิร์ฟ');
+}
+
+// --- เนื้อไฟล์ ---
+
+const externalHosts = new Map();
+let pages = 0;
+let redirects = 0;
+
+for (const rel of rels) {
+  if (!TEXT.test(rel)) continue;
+
+  const body = readFileSync(join(dist, rel), "utf8");
+
+  if (originHost && originHost !== targetHost) {
+    const re = new RegExp(`https?://(?:www\\.)?${originHost.replace(/\./g, "\\.")}`, "i");
+    if (re.test(body)) {
+      error(rel, `ยังมีลิงก์ absolute กลับไปที่ ${originHost}`);
+    }
+  }
+
+  for (const needle of ["/wp-admin/", "wp-login.php", "xmlrpc.php", "/wp-json/", "wp-cron.php"]) {
+    if (body.includes(needle)) {
+      error(rel, `อ้างถึง ${needle} ซึ่งไม่มีอยู่บน static`);
+      break;
+    }
+  }
+
+  if (!PAGE.test(rel)) continue;
+
+  // หน้า meta-refresh คือ redirect ที่ถูกแปลงเป็นไฟล์ ไม่ใช่หน้าเนื้อหา
+  // จะไม่มี canonical/description และลิงก์ในนั้นชี้ออกนอกเว็บโดยตั้งใจ
+  if (/<meta[^>]+http-equiv=["']refresh["']/i.test(body)) {
+    redirects++;
+    continue;
+  }
+
+  pages++;
+
+  const title = (body.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1];
+  if (!title || !title.trim()) {
+    error(rel, "ไม่มี <title>");
+  }
+
+  const canonical = (body.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i) || [])[1];
+  if (rel !== "404.html") {
+    if (!canonical) {
+      warn(rel, "ไม่มี canonical");
+    } else if (targetHost && hostOf(canonical) !== targetHost) {
+      error(rel, `canonical ชี้ ${hostOf(canonical) || canonical} ไม่ใช่ ${targetHost}`);
+    }
+  }
+
+  const desc = (body.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i) || [])[1];
+  if (!desc || !desc.trim()) {
+    warn(rel, "ไม่มี meta description");
+  }
+
+  for (const m of body.matchAll(/\s(?:href|src)=["'](https?:\/\/[^"'\/]+)/gi)) {
+    const h = hostOf(m[1]);
+    if (h && h !== targetHost && h !== originHost) {
+      externalHosts.set(h, (externalHosts.get(h) || 0) + 1);
+    }
+  }
+
+  for (const link of internalLinks(body)) {
+    if (WP_ONLY.test(link)) continue;
+
+    const target = resolveLink(link, rel);
+    if (target && !present.has(target)) {
+      error(rel, `ลิงก์ไปหาไฟล์ที่ไม่มีอยู่: ${link}`);
+    }
+  }
+}
+
+/**
+ * ลิงก์ที่ชี้ภายในเว็บเดียวกัน (root-relative หรือ relative) จาก href/src/srcset
+ */
+function internalLinks(html) {
+  const out = new Set();
+
+  for (const m of html.matchAll(/\s(?:href|src|poster)=["']([^"']+)["']/gi)) {
+    out.add(m[1]);
+  }
+  for (const m of html.matchAll(/\ssrcset=["']([^"']+)["']/gi)) {
+    for (const part of m[1].split(",")) {
+      const u = part.trim().split(/\s+/)[0];
+      if (u) out.add(u);
+    }
+  }
+
+  return [...out].filter((u) => {
+    if (!u || u.startsWith("#") || u.startsWith("data:")) return false;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(u)) return false;
+    if (u.startsWith("//")) return false;
+    // ตัวแปรของ template เช่น {$sitemapURL} ใน XSLT ของ sitemap ไม่ใช่ลิงก์จริง
+    if (/[{}]/.test(u)) return false;
+    return true;
+  });
+}
+
+/**
+ * แปลงลิงก์ในหน้าเป็น path ไฟล์ที่ควรมีอยู่จริงใน dist
+ */
+function resolveLink(link, fromRel) {
+  let p = link.split("#")[0].split("?")[0];
+  if (p === "") return null;
+
+  try {
+    p = decodeURIComponent(p);
+  } catch {
+    /* ปล่อยตามเดิมถ้า decode ไม่ผ่าน */
+  }
+
+  let full;
+  if (p.startsWith("/")) {
+    full = p.slice(1);
+  } else {
+    const base = fromRel.includes("/") ? fromRel.slice(0, fromRel.lastIndexOf("/")) : "";
+    full = base ? `${base}/${p}` : p;
+  }
+
+  const parts = [];
+  for (const seg of full.split("/")) {
+    if (seg === "." || seg === "") continue;
+    if (seg === "..") parts.pop();
+    else parts.push(seg);
+  }
+  full = parts.join("/");
+
+  if (full === "") return "index.html";
+  if (link.endsWith("/") || !/\.[a-z0-9]{1,6}$/i.test(full)) {
+    full += "/index.html";
+  }
+
+  return full;
+}
+
+// --- รายงาน ---
+
+if (externalHosts.size) {
+  const list = [...externalHosts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  console.log(`\n${C.dim("โดเมนภายนอกที่หน้าเว็บยังเรียกอยู่")}`);
+  for (const [h, n] of list) {
+    console.log(`  ${String(n).padStart(4)}×  ${h}`);
+  }
+}
+
+console.log(
+  `\n${C.dim("สรุป")} ${pages} หน้า · ${redirects} หน้า redirect · ${rels.length} ไฟล์ · ${(total / 1024 / 1024).toFixed(1)} MB`,
+);
+
+if (warnings.length) {
+  console.log(`\n── ${warnings.length} คำเตือน — ไม่บล็อก แต่ควรดู ──`);
+  for (const w of warnings.slice(0, 30)) {
+    console.log(`  ${C.yellow("!")} ${w.where}  ${w.msg}`);
+  }
+  if (warnings.length > 30) console.log(C.dim(`  … อีก ${warnings.length - 30} รายการ`));
+}
+
+if (errors.length) {
+  console.log(`\n── ${C.red(`${errors.length} ERROR`)} — ห้าม deploy จนกว่าจะแก้ ──`);
+  for (const e of errors.slice(0, 40)) {
+    console.log(`  ${C.red("×")} ${e.where}  ${e.msg}`);
+  }
+  if (errors.length > 40) console.log(C.dim(`  … อีก ${errors.length - 40} รายการ`));
+  console.log("");
+  process.exit(1);
+}
+
+console.log(`\n${C.green("✓ ผ่านหมด")} (${warnings.length} คำเตือน) — deploy ได้\n`);

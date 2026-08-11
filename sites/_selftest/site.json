@@ -1,0 +1,8 @@
+{
+  "slug": "_selftest",
+  "origin": "https://old-site.com",
+  "target_domain": "https://new-site.com",
+  "worker_name": "selftest",
+  "account_id": "",
+  "compatibility_date": "2026-08-11"
+}

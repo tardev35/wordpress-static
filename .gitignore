@@ -1,0 +1,11 @@
+node_modules/
+build/
+.uploads/
+.wrangler/
+uploader.json
+
+# งานของลูกค้าแต่ละเว็บเป็นของเฉพาะเครื่อง ไม่เอาขึ้น repo
+# (dist หลายสิบ MB, site.json มี account_id ของลูกค้า)
+sites/*
+!sites/_selftest
+*.zip

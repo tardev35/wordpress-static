@@ -126,6 +126,23 @@
             stop();
         });
 
+        $('wpse-selftest').addEventListener('click', function (e) {
+            e.preventDefault();
+            $('wpse-selftest').disabled = true;
+            $('wpse-log').textContent = 'กำลังตรวจ...';
+
+            post('wpse_selftest', function (d) {
+                $('wpse-selftest').disabled = false;
+                $('wpse-log').textContent = (d.ok ? '[ok] ' : '[!!] ') + d.text;
+                if (!d.ok) {
+                    window.alert(d.text);
+                }
+            }, function (msg) {
+                $('wpse-selftest').disabled = false;
+                $('wpse-log').textContent = 'ตรวจไม่สำเร็จ: ' + msg;
+            });
+        });
+
         $('wpse-reset').addEventListener('click', function (e) {
             e.preventDefault();
             if (!window.confirm('ล้างงาน export ทิ้งทั้งหมด?')) {

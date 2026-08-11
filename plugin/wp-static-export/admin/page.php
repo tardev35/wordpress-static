@@ -117,6 +117,7 @@ $running = $job && $job['phase'] !== WPSE_Job::PHASE_DONE;
             <h2>2. ส่งออก</h2>
 
             <p class="wpse-actions">
+                <button class="button" id="wpse-selftest">ตรวจก่อนเริ่ม</button>
                 <button class="button button-primary" id="wpse-start">เริ่ม export ใหม่</button>
                 <button class="button" id="wpse-resume" <?php disabled(!$running); ?>>ทำต่อจากที่ค้าง</button>
                 <button class="button" id="wpse-stop" disabled>หยุดพัก</button>

@@ -20,6 +20,7 @@ class WPSE_Admin
         add_action('wp_ajax_wpse_step', [$this, 'ajax_step']);
         add_action('wp_ajax_wpse_status', [$this, 'ajax_status']);
         add_action('wp_ajax_wpse_reset', [$this, 'ajax_reset']);
+        add_action('wp_ajax_wpse_selftest', [$this, 'ajax_selftest']);
     }
 
     public function menu()
@@ -172,6 +173,60 @@ class WPSE_Admin
         WPSE_Job::reset();
 
         wp_send_json_success(['phase' => WPSE_Job::PHASE_IDLE]);
+    }
+
+    /**
+     * ยิง loopback ดูว่าปลายทางที่ตัว export จะไปคุยด้วยเป็น WordPress ตัวนี้จริงไหม
+     *
+     * พอโดเมนถูกย้ายไปชี้ Cloudflare Workers แล้ว home_url() จะพาไปหาเว็บ static
+     * ที่ deploy ไว้แทน — กด export ต่อจะได้สำเนาของตัวเองกลับมาโดยไม่มีใครรู้
+     */
+    public function ajax_selftest()
+    {
+        $this->guard();
+
+        $args = [
+            'timeout'     => 20,
+            'redirection' => 0,
+            'sslverify'   => false,
+            'user-agent'  => WPSE_Crawler::UA,
+            'headers'     => WPSE_Crawler::HEADERS,
+        ];
+
+        $home  = wp_remote_get(home_url('/'), $args);
+        $login = wp_remote_get(home_url('/wp-login.php'), $args);
+
+        if (is_wp_error($home)) {
+            wp_send_json_success([
+                'ok'   => false,
+                'text' => 'ยิงไปที่ ' . home_url('/') . ' ไม่ได้เลย — ' . $home->get_error_message()
+                    . ' (เซิร์ฟเวอร์นี้อาจปิด loopback request)',
+            ]);
+        }
+
+        $home_code  = (int) wp_remote_retrieve_response_code($home);
+        $login_code = is_wp_error($login) ? 0 : (int) wp_remote_retrieve_response_code($login);
+        $login_body = is_wp_error($login) ? '' : (string) wp_remote_retrieve_body($login);
+
+        $is_wp = $login_code === 200 && strpos($login_body, 'user_login') !== false;
+        $cf    = wp_remote_retrieve_header($home, 'cf-ray');
+
+        if ($is_wp) {
+            wp_send_json_success([
+                'ok'   => true,
+                'text' => 'พร้อม export — ' . home_url('/') . ' ตอบกลับมาเป็น WordPress ตัวนี้จริง'
+                    . ($cf ? ' (ผ่าน Cloudflare อยู่ ถ้าเจอ 403 เยอะให้ทำ WAF skip rule ก่อน)' : ''),
+            ]);
+        }
+
+        wp_send_json_success([
+            'ok'   => false,
+            'text' => 'อันตราย — ' . home_url('/') . ' ตอบ ' . $home_code
+                . ' แต่ /wp-login.php ตอบ ' . $login_code . ' ซึ่งไม่ใช่หน้าล็อกอินของ WordPress'
+                . ($cf ? ' และมาจาก Cloudflare (cf-ray)' : '')
+                . '. แปลว่าโดเมนนี้ถูกย้ายไปชี้ที่อื่นแล้ว เช่นเว็บ static ที่ deploy ไว้'
+                . ' — ถ้า export ต่อจะได้สำเนาของเว็บ static กลับมา ไม่ใช่ WordPress',
+        ]);
     }
 
     protected function guard()

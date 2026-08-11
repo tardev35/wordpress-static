@@ -167,6 +167,23 @@ class WPSE_Crawler
             return;
         }
 
+        // WordPress เติม slash ปิดท้ายให้เองด้วย 301 — /promotion → /promotion/
+        // ซึ่งสองอันนี้ลงไฟล์เดียวกันคือ promotion/index.html ถ้าเขียนหน้า redirect
+        // ลงไปจะทับหน้าจริงที่ดึงมาแล้ว กลายเป็นหน้าที่พาไปหาตัวเองวนไม่รู้จบ
+        if (WPSE_Extractor::is_internal($to)) {
+            $rel_to = WPSE_Writer::path_for($to, WPSE_Extractor::classify($to));
+
+            if ($rel_to === $rel) {
+                if (!WPSE_Extractor::is_excluded($to)) {
+                    WPSE_Job::push($job['id'], [$to], WPSE_Extractor::classify($to));
+                }
+
+                WPSE_Job::finish_row($id, WPSE_Job::STATUS_SKIP, $code, 0, $rel, 'redirect ' . $code . ' ไปที่ไฟล์เดียวกัน — ไม่เขียนทับ');
+
+                return;
+            }
+        }
+
         if (WPSE_Extractor::is_internal($to) && !WPSE_Extractor::is_excluded($to)) {
             WPSE_Job::push($job['id'], [$to], WPSE_Extractor::classify($to));
         }

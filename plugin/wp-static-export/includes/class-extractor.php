@@ -33,6 +33,12 @@ class WPSE_Extractor
             }
         }
 
+        // ตัวแปรของ template ที่ยังไม่ถูกแทนค่า เช่น {$sitemapURL} ใน XSLT ของ sitemap
+        // ไม่ใช่ URL จริง ถ้าปล่อยไปจะได้ 301/404 ขยะติดมาทุกรอบ
+        if (strpos($url, '{') !== false || strpos($url, '}') !== false) {
+            return '';
+        }
+
         $hash = strpos($url, '#');
         if ($hash !== false) {
             $url = substr($url, 0, $hash);

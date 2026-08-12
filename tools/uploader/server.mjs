@@ -99,32 +99,71 @@ function dirSize(dir) {
 }
 
 /**
- * ขึ้นเว็บไปแล้วไฟล์ในเครื่องไม่ต้องเก็บ — เว็บที่รูปเยอะกินหลายสิบ MB ต่อเว็บ
- * เก็บ site.json ไว้ เพราะรอบหน้าจะได้ไม่ต้องกรอกโดเมนกับบัญชีใหม่
+ * ขึ้นเว็บไปแล้วโฟลเดอร์ในเครื่องไม่ต้องเก็บ — เว็บที่รูปเยอะกินหลายสิบ MB ต่อเว็บ
+ * และโฟลเดอร์ที่ค้างอยู่ใน sites/ ทำให้ทีมหลงว่ายังมีงานต้องทำกับเว็บนั้น
+ *
+ * ค่าตั้ง (โดเมนปลายทาง ชื่อ Worker account_id) ย้ายไปเก็บใน uploader.json แทน
+ * รอบหน้าที่อัป zip ของ slug เดิม unpack จะดึงกลับมาเติมให้เอง — account_id
+ * เป็นช่องที่กรอกผิดง่ายที่สุด ไม่ควรให้ใครต้องกรอกซ้ำทุกรอบ
  *
  * @param {string} slug
  * @returns {string}
  */
-function clearDist(slug) {
-  const dist = join(ROOT, "sites", slug, "dist");
+function clearSite(slug) {
+  const dir = join(ROOT, "sites", slug);
 
-  if (!existsSync(dist)) {
+  if (!existsSync(dir)) {
     return "";
   }
 
-  const mb = (dirSize(dist) / 1024 / 1024).toFixed(1);
-  rmSync(dist, { recursive: true, force: true });
+  const mb = (dirSize(dir) / 1024 / 1024).toFixed(1);
+  const metaPath = join(dir, "site.json");
 
-  const metaPath = join(ROOT, "sites", slug, "site.json");
   if (existsSync(metaPath)) {
     try {
-      writeFileSync(metaPath, JSON.stringify({ ...readJson(metaPath), deployed_at: nowStamp() }, null, 2) + "\n", "utf8");
+      const meta = readJson(metaPath);
+      remember(slug, {
+        origin: meta.origin || "",
+        target_domain: meta.target_domain || "",
+        worker_name: meta.worker_name || "",
+        account_id: meta.account_id || "",
+        compatibility_date: meta.compatibility_date || "",
+        deployed_at: nowStamp(),
+      });
     } catch {
-      /* บันทึกวันที่ไม่ได้ก็ไม่ใช่เรื่องคอขาดบาดตาย */
+      /* จำค่าไม่ได้ก็ยังลบได้ แค่รอบหน้าต้องกรอกเอง */
     }
   }
 
-  return `ลบไฟล์เว็บในเครื่องแล้ว (คืนพื้นที่ ${mb} MB) — ค่าตั้งของเว็บนี้ยังเก็บไว้ให้รอบหน้า`;
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    return `ลบโฟลเดอร์ sites/${slug} ไม่สำเร็จ — มีโปรแกรมเปิดไฟล์ในนั้นค้างอยู่ ปิดแล้วลบเองได้`;
+  }
+
+  if (previewSlug === slug) {
+    previewSlug = "";
+  }
+
+  return `ลบเว็บออกจากเครื่องแล้ว (คืนพื้นที่ ${mb} MB) — จำค่าตั้งไว้ให้รอบหน้าแล้ว ไม่ต้องกรอกใหม่`;
+}
+
+/**
+ * @param {string} slug
+ * @param {object} entry
+ */
+function remember(slug, entry) {
+  savePrefs({ remember: { ...(prefs().remember || {}), [slug]: entry } });
+}
+
+/**
+ * @param {string} slug
+ */
+function forget(slug) {
+  const all = { ...(prefs().remember || {}) };
+
+  delete all[slug];
+  savePrefs({ remember: all });
 }
 
 function nowStamp() {
@@ -443,6 +482,7 @@ const server = createServer(async (req, res) => {
     }
 
     rmSync(dir, { recursive: true, force: true });
+    forget(slug);
     json(res, 200, { ok: true, mb });
 
     return;
@@ -548,7 +588,7 @@ const server = createServer(async (req, res) => {
       // ขึ้นเว็บแล้ว zip ต้นทางไม่มีประโยชน์อีก — ปล่อยไว้กินดิสก์เปล่าๆ
       // เว็บที่รูปเยอะๆ ไฟล์เดียวหลายร้อย MB
       tool("deploy.mjs", [slug], {
-        onDone: (code) => (code === 0 ? [clearUploads(), clearDist(slug)].filter(Boolean).join("\n") : ""),
+        onDone: (code) => (code === 0 ? [clearUploads(), clearSite(slug)].filter(Boolean).join("\n") : ""),
       });
 
       return;
@@ -572,6 +612,35 @@ const server = createServer(async (req, res) => {
   res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
   res.end("ไม่มีหน้านี้");
 });
+
+/**
+ * เก็บกวาดเว็บที่ deploy จบไปแล้วแต่โฟลเดอร์ยังค้างอยู่
+ *
+ * เครื่องมือรุ่นก่อนลบแค่ dist/ แล้วปล่อยโฟลเดอร์ทิ้งไว้ ของค้างพวกนั้นเลยยังอยู่ในเครื่อง
+ * ที่อัปเดตมาจากรุ่นเก่า และยังทำงานอยู่ต่อไปด้วยถ้าวันไหน rmSync ลบไม่ผ่านเพราะไฟล์ถูกล็อก
+ *
+ * @returns {void}
+ */
+function sweepDeployed() {
+  const dir = join(ROOT, "sites");
+
+  if (!existsSync(dir)) {
+    return;
+  }
+
+  for (const site of listSites()) {
+    if (!site.deployedAt || site.hasDist) {
+      continue;
+    }
+
+    const said = clearSite(site.slug);
+    if (said) {
+      console.log(`  เก็บกวาด ${site.slug} — ${said}`);
+    }
+  }
+}
+
+sweepDeployed();
 
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`

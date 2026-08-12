@@ -7,6 +7,27 @@ import { C, readJson } from "./lib.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+/**
+ * เว็บที่ deploy จบแล้วจะถูกลบทั้งโฟลเดอร์ออกจาก sites/ ค่าตั้งของมันย้ายไปอยู่ใน
+ * uploader.json ดึงกลับมาที่นี่ เพื่อให้รอบถัดไปของเว็บเดิมไม่ต้องกรอก account_id ใหม่
+ *
+ * @param {string} slug
+ * @returns {object}
+ */
+function remembered(slug) {
+  const path = join(ROOT, "uploader.json");
+
+  if (!existsSync(path)) {
+    return {};
+  }
+
+  try {
+    return readJson(path)?.remember?.[slug] || {};
+  } catch {
+    return {};
+  }
+}
+
 const USAGE = `
   node tools/unpack.mjs <ไฟล์.zip> [slug]
 
@@ -87,6 +108,7 @@ const distDir = join(siteDir, "dist");
 mkdirSync(siteDir, { recursive: true });
 
 let existing = {};
+let fromMemory = false;
 const existingPath = join(siteDir, "site.json");
 if (existsSync(existingPath)) {
   try {
@@ -94,6 +116,9 @@ if (existsSync(existingPath)) {
   } catch {
     /* ไฟล์เสีย ถือว่าไม่มี */
   }
+} else {
+  existing = remembered(slug);
+  fromMemory = Boolean(existing.account_id || existing.target_domain);
 }
 
 rmSync(distDir, { recursive: true, force: true });
@@ -137,7 +162,7 @@ rmSync(staging, { recursive: true, force: true });
 console.log(`
 ${C.green("แตกเสร็จแล้ว")}
 
-  slug            ${C.bold(slug)}
+  slug            ${C.bold(slug)}${fromMemory ? C.dim("  (เคยขึ้นเว็บแล้ว — ดึงค่าตั้งเดิมกลับมาให้)") : ""}
   ไฟล์เว็บ         sites/${slug}/dist/
   โดเมนต้นทาง      ${merged.origin || C.dim("(ไม่มีข้อมูล)")}
   โดเมนปลายทาง     ${merged.target_domain || C.dim("(ยังไม่ตั้ง)")}

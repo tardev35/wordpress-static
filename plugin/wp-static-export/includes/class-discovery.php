@@ -49,7 +49,12 @@ class WPSE_Discovery
         }
 
         $urls[] = home_url('/robots.txt');
-        $urls[] = home_url('/favicon.ico');
+
+        // เว็บส่วนใหญ่ไม่มี favicon.ico ที่รากจริงๆ (ใช้ <link rel=icon> ชี้ไฟล์ใน uploads แทน)
+        // ถ้าใส่ไปดื้อๆ จะได้ 404 ติดรายงานทุกรอบจนคนอ่านนึกว่า export พัง
+        if (self::head_ok(home_url('/favicon.ico'))) {
+            $urls[] = home_url('/favicon.ico');
+        }
 
         $clean = [];
         foreach ($urls as $u) {

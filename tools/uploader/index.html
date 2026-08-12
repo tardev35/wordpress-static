@@ -709,8 +709,17 @@
          ไปสร้าง WAF custom rule ที่ Cloudflare ให้ Skip เมื่อ header <code>x-wpse-export</code> เท่ากับ <code>1</code>
          แล้วกลับไปที่ WordPress กด "ล้างงานทิ้ง" → export ใหม่`);
     } else if (r.errors > 0) {
-      add("", `มี ${r.errors} URL ที่ดึงไม่สำเร็จ`,
-        `รหัสที่เจอ: ${failed.map(([c, n]) => `${c} × ${n}`).join(", ")} — เปิด export-report.json ดูรายการเต็มได้`);
+      const only404 = failed.length === 1 && failed[0][0] === "404";
+
+      add(
+        only404 ? "ok" : "",
+        only404 ? `${r.errors} URL ตอบ 404 ตั้งแต่ต้นทาง — ไม่ใช่ปัญหาของ export` : `มี ${r.errors} URL ที่ดึงไม่สำเร็จ`,
+        `${
+          only404
+            ? "แปลว่าหน้าพวกนี้ไม่มีอยู่บนเว็บ WordPress อยู่แล้ว (ลิงก์เสียเดิม หรือ URL ที่ระบบเดาไปเผื่อ) ปล่อยไว้ได้"
+            : `รหัสที่เจอ: ${failed.map(([c, n]) => `${c} × ${n}`).join(", ")}`
+        }${r.failedUrls?.length ? `<ul>${r.failedUrls.map((u) => `<li>${escapeHtml(u)}</li>`).join("")}</ul>` : ""}`,
+      );
     }
 
     const forms = (r.dynamic?.forms || []).length;

@@ -140,6 +140,7 @@ function readReport(path) {
       files: r?.counts?.files ?? 0,
       mb: ((r?.counts?.bytes ?? 0) / 1024 / 1024).toFixed(2),
       failedCodes: countCodes(r?.failed_urls || []),
+      failedUrls: (r?.failed_urls || []).slice(0, 10).map((f) => `${f.http_code} ${f.url}`),
       redirects: (r?.redirects || []).length,
       plugins: (r?.active_plugins || []).map((p) => p.name),
       dynamic: r?.dynamic_bits || {},

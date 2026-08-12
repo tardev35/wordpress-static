@@ -166,6 +166,8 @@ class WPSE_Extractor
             '/wp-json/',
             'rest_route=',
             '/trackback/',
+            // ของ Cloudflare เอง ถูกดักที่ edge ก่อนถึงเว็บเราเสมอ ดึงมาเก็บไม่ได้และไม่ต้องเก็บ
+            '/cdn-cgi/',
             'action=lostpassword',
             '?share=',
             '?replytocom',

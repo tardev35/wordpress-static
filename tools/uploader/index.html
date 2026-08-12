@@ -110,6 +110,19 @@
 
   label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
 
+  .tick {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 400;
+    color: var(--dim);
+    margin: 8px 0 0;
+    cursor: pointer;
+  }
+
+  .tick input { width: auto; margin: 0; }
+  .tick[hidden] { display: none; }
+
   input, select {
     width: 100%;
     padding: 8px 10px;
@@ -385,6 +398,10 @@
 
       <label for="site">เว็บที่แตกไว้แล้ว</label>
       <select id="site"></select>
+      <label class="tick" id="site-more-wrap" hidden>
+        <input type="checkbox" id="site-more">
+        แสดงเว็บที่ขึ้นไปแล้วด้วย (<span id="site-more-n">0</span>)
+      </label>
 
       <div class="grid2">
         <div>
@@ -647,19 +664,36 @@
     paintEnv();
 
     const current = $("site").value;
-    $("site").innerHTML = state.sites.length
-      ? state.sites
+    const done = state.sites.filter(isDone);
+
+    $("site-more-n").textContent = done.length;
+    $("site-more-wrap").hidden = done.length === 0;
+
+    const list = state.sites.filter((s) => !isDone(s) || $("site-more").checked || s.slug === current);
+
+    $("site").innerHTML = list.length
+      ? list
           .map((s) => {
             const tag = s.hasDist ? "" : s.deployedAt ? ` — ขึ้นเว็บแล้ว ${s.deployedAt} (ลบไฟล์แล้ว)` : " (ยังไม่มีไฟล์เว็บ)";
 
             return `<option value="${s.slug}">${s.slug}${tag}</option>`;
           })
           .join("")
-      : `<option value="">ยังไม่มีเว็บ — แตก ZIP ก่อน</option>`;
+      : state.sites.length
+        ? `<option value="">ขึ้นเว็บครบทุกเว็บแล้ว — อัป ZIP ใหม่เพื่อเริ่มรอบถัดไป</option>`
+        : `<option value="">ยังไม่มีเว็บ — แตก ZIP ก่อน</option>`;
 
-    if (current && state.sites.some((s) => s.slug === current)) $("site").value = current;
+    if (current && list.some((s) => s.slug === current)) $("site").value = current;
 
     fillSite();
+  }
+
+  /**
+   * เว็บที่ deploy จบแล้วและไฟล์ถูกลบทิ้ง — งานของมันปิดไปแล้ว เหลือแต่ค่าตั้งที่เก็บไว้
+   * ให้รอบหน้า ไม่ควรมาปนอยู่ในรายการที่ทีมต้องเลือกทำงานด้วยตอนนี้
+   */
+  function isDone(s) {
+    return !s.hasDist && Boolean(s.deployedAt);
   }
 
   function fillSite() {
@@ -963,6 +997,7 @@
   // --- ขั้นที่ 3 ---
 
   $("site").addEventListener("change", fillSite);
+  $("site-more").addEventListener("change", load);
 
   $("account-pick").addEventListener("change", () => {
     if ($("account-pick").value) $("account").value = $("account-pick").value;

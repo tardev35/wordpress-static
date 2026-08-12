@@ -405,6 +405,7 @@
 
       <div class="row">
         <button id="btn-save">บันทึกค่า</button>
+        <button class="ghost" id="btn-drop">ลบเว็บนี้ออกจากรายการ</button>
       </div>
 
       <div id="acct-note"></div>
@@ -534,7 +535,7 @@
   }
 
   function setBusy(on) {
-    for (const id of ["btn-verify", "btn-preview", "btn-deploy", "btn-save", "btn-login", "btn-cf-refresh", "btn-install"]) {
+    for (const id of ["btn-verify", "btn-preview", "btn-deploy", "btn-save", "btn-drop", "btn-login", "btn-cf-refresh", "btn-install"]) {
       $(id).disabled = on;
     }
     $("btn-unpack").disabled = on || !uploaded;
@@ -559,17 +560,17 @@
     const ready2 = cf.loggedIn && state.env.wrangler;
 
     const done = [
-      Boolean(s?.hasDist),
+      Boolean(s?.hasDist || s?.deployedAt),
       ready2,
       Boolean(s?.account_id && s?.target_domain),
-      deployed,
+      deployed || Boolean(s?.deployedAt),
     ];
 
     const labels = [
-      s?.hasDist ? "แตกไฟล์แล้ว" : "รออยู่",
+      s?.hasDist ? "แตกไฟล์แล้ว" : s?.deployedAt ? "ลบไฟล์แล้วหลังขึ้นเว็บ" : "รออยู่",
       ready2 ? "พร้อมแล้ว" : !state.env.wrangler ? "ยังไม่ได้ติดตั้ง" : "ยังไม่ล็อกอิน",
       s?.account_id && s?.target_domain ? "ตั้งค่าแล้ว" : "รออยู่",
-      deployed ? "ขึ้นเว็บแล้ว" : "รออยู่",
+      deployed ? "ขึ้นเว็บแล้ว" : s?.deployedAt ? `ขึ้นเว็บแล้ว ${s.deployedAt}` : "รออยู่",
     ];
 
     let activeSet = false;
@@ -647,7 +648,13 @@
 
     const current = $("site").value;
     $("site").innerHTML = state.sites.length
-      ? state.sites.map((s) => `<option value="${s.slug}">${s.slug}${s.hasDist ? "" : " (ยังไม่มีไฟล์เว็บ)"}</option>`).join("")
+      ? state.sites
+          .map((s) => {
+            const tag = s.hasDist ? "" : s.deployedAt ? ` — ขึ้นเว็บแล้ว ${s.deployedAt} (ลบไฟล์แล้ว)` : " (ยังไม่มีไฟล์เว็บ)";
+
+            return `<option value="${s.slug}">${s.slug}${tag}</option>`;
+          })
+          .join("")
       : `<option value="">ยังไม่มีเว็บ — แตก ZIP ก่อน</option>`;
 
     if (current && state.sites.some((s) => s.slug === current)) $("site").value = current;
@@ -1036,6 +1043,40 @@
     });
   });
 
+  $("btn-drop").addEventListener("click", async () => {
+    const slug = $("site").value;
+    const s = currentSite();
+    if (!slug) return;
+
+    const go = await swal({
+      icon: "warning",
+      title: "ลบเว็บนี้ออกจากรายการ",
+      html: `<p>จะลบโฟลเดอร์ <code>sites/${escapeHtml(slug)}</code> ทิ้งทั้งหมด
+             ทั้งไฟล์เว็บ ค่าตั้ง และรายงาน</p>
+             <p style="margin:8px 0 0">${
+               s?.deployedAt
+                 ? `เว็บนี้ขึ้นไปแล้วเมื่อ <b>${escapeHtml(s.deployedAt)}</b> — ตัวที่อยู่บน Cloudflare ไม่ได้ถูกแตะ ยังทำงานปกติ`
+                 : "<b>เว็บนี้ยังไม่เคยขึ้น</b> ลบแล้วต้อง export กับตั้งค่าใหม่ทั้งหมด"
+             }</p>`,
+      confirmText: "ลบเลย",
+      cancelText: "ยังก่อน",
+      danger: true,
+    });
+
+    if (!go) return;
+
+    setBusy(true);
+    const out = await (await fetch("/api/site/delete?slug=" + encodeURIComponent(slug), { method: "POST" })).json();
+    setBusy(false);
+    await load();
+
+    await swal({
+      icon: out.ok ? "success" : "error",
+      title: out.ok ? "ลบแล้ว" : "ลบไม่สำเร็จ",
+      html: out.ok ? `คืนพื้นที่ไป <b>${out.mb} MB</b>` : escapeHtml(out.error || ""),
+    });
+  });
+
   // --- ขั้นที่ 4 ---
 
   $("btn-verify").addEventListener("click", async () => {
@@ -1163,7 +1204,8 @@
                 ใส่โดเมนเปล่าๆ <b>ห้ามใช้ + Add Route</b></li>
             <li>ทำให้ <code>www</code> เด้งมาโดเมนหลัก</li>
           </ol>
-          <p style="margin:8px 0 0">รายละเอียดอยู่ใน DEPLOY-CLOUDFLARE.md ขั้นที่ 4–5</p>`,
+          <p style="margin:8px 0 0">รายละเอียดอยู่ใน DEPLOY-CLOUDFLARE.md ขั้นที่ 4–5</p>
+          <p style="margin:8px 0 0">ไฟล์เว็บกับ ZIP ในเครื่องถูกลบให้แล้ว ค่าตั้งของเว็บนี้ยังเก็บไว้ให้รอบหน้า</p>`,
       });
 
       return;

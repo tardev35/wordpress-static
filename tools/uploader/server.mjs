@@ -77,6 +77,63 @@ function clearUploads() {
   return count ? `ลบ zip ที่พักไว้แล้ว ${count} ไฟล์ (คืนพื้นที่ ${(bytes / 1024 / 1024).toFixed(1)} MB)` : "";
 }
 
+/**
+ * ขนาดรวมของโฟลเดอร์ ใช้บอกว่าคืนพื้นที่ไปเท่าไหร่
+ *
+ * @param {string} dir
+ * @returns {number}
+ */
+function dirSize(dir) {
+  let total = 0;
+
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    try {
+      total += entry.isDirectory() ? dirSize(p) : statSync(p).size;
+    } catch {
+      /* ไฟล์หายระหว่างนับก็ข้ามไป */
+    }
+  }
+
+  return total;
+}
+
+/**
+ * ขึ้นเว็บไปแล้วไฟล์ในเครื่องไม่ต้องเก็บ — เว็บที่รูปเยอะกินหลายสิบ MB ต่อเว็บ
+ * เก็บ site.json ไว้ เพราะรอบหน้าจะได้ไม่ต้องกรอกโดเมนกับบัญชีใหม่
+ *
+ * @param {string} slug
+ * @returns {string}
+ */
+function clearDist(slug) {
+  const dist = join(ROOT, "sites", slug, "dist");
+
+  if (!existsSync(dist)) {
+    return "";
+  }
+
+  const mb = (dirSize(dist) / 1024 / 1024).toFixed(1);
+  rmSync(dist, { recursive: true, force: true });
+
+  const metaPath = join(ROOT, "sites", slug, "site.json");
+  if (existsSync(metaPath)) {
+    try {
+      writeFileSync(metaPath, JSON.stringify({ ...readJson(metaPath), deployed_at: nowStamp() }, null, 2) + "\n", "utf8");
+    } catch {
+      /* บันทึกวันที่ไม่ได้ก็ไม่ใช่เรื่องคอขาดบาดตาย */
+    }
+  }
+
+  return `ลบไฟล์เว็บในเครื่องแล้ว (คืนพื้นที่ ${mb} MB) — ค่าตั้งของเว็บนี้ยังเก็บไว้ให้รอบหน้า`;
+}
+
+function nowStamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 function receiveUpload(req, name) {
   return new Promise((done, fail) => {
     rmSync(UPLOADS, { recursive: true, force: true });
@@ -120,6 +177,7 @@ function listSites() {
       slug,
       ...meta,
       hasDist: existsSync(join(distDir, "index.html")),
+      deployedAt: meta.deployed_at || "",
       report: readReport(join(dir, slug, "export-report.json")),
     });
   }
@@ -358,6 +416,34 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === "/api/site/delete" && req.method === "POST") {
+    const slug = String(url.searchParams.get("slug") || "");
+    const dir = join(ROOT, "sites", slug);
+
+    if (!slug || slug.startsWith("_") || slug.includes("..") || slug.includes("/") || slug.includes("\\")) {
+      json(res, 400, { error: "ลบเว็บนี้ไม่ได้" });
+
+      return;
+    }
+
+    if (!existsSync(dir)) {
+      json(res, 404, { error: "ไม่พบเว็บ " + slug });
+
+      return;
+    }
+
+    const mb = (dirSize(dir) / 1024 / 1024).toFixed(1);
+
+    if (previewSlug === slug) {
+      previewSlug = "";
+    }
+
+    rmSync(dir, { recursive: true, force: true });
+    json(res, 200, { ok: true, mb });
+
+    return;
+  }
+
   if (url.pathname === "/api/preview") {
     const slug = String(url.searchParams.get("slug") || "");
 
@@ -458,7 +544,7 @@ const server = createServer(async (req, res) => {
       // ขึ้นเว็บแล้ว zip ต้นทางไม่มีประโยชน์อีก — ปล่อยไว้กินดิสก์เปล่าๆ
       // เว็บที่รูปเยอะๆ ไฟล์เดียวหลายร้อย MB
       tool("deploy.mjs", [slug], {
-        onDone: (code) => (code === 0 ? clearUploads() : ""),
+        onDone: (code) => (code === 0 ? [clearUploads(), clearDist(slug)].filter(Boolean).join("\n") : ""),
       });
 
       return;

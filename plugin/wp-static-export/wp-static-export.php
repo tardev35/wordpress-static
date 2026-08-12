@@ -144,9 +144,13 @@ function wpse_protect_root()
  */
 function wpse_site_slug()
 {
-    $host = wp_parse_url(home_url(), PHP_URL_HOST);
-    $host = preg_replace('/^www\./', '', (string) $host);
-    $slug = sanitize_title(str_replace('.', '-', $host));
+    $host = strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST));
+    $host = preg_replace('/^www\./', '', $host);
+
+    // ห้ามใช้ sanitize_title() ที่นี่ — มันยุบขีดคู่เหลือขีดเดียว ทำให้ punycode
+    // ของโดเมนภาษาไทย (xn--...) เพี้ยนจนถอดกลับไม่ได้
+    $slug = preg_replace('/[^a-z0-9-]+/', '-', str_replace('.', '-', $host));
+    $slug = trim(preg_replace('/-{3,}/', '--', $slug), '-');
 
     return $slug !== '' ? $slug : 'site';
 }

@@ -337,6 +337,13 @@
       <div class="bar" id="bar-wrap" hidden><div class="bar-fill" id="bar"></div></div>
       <p class="picked" id="picked"></p>
 
+      <label for="slug">ชื่อสั้นของเว็บ <span style="font-weight:400;color:var(--dim)">— เว้นว่างได้ ระบบตั้งจากโดเมนให้เอง</span></label>
+      <input id="slug" placeholder="เช่น webhuay-payak">
+      <p class="hint" style="margin:6px 0 0">
+        ใช้เป็นชื่อโฟลเดอร์ในเครื่องและชื่อ Worker เริ่มต้น
+        โดเมนภาษาไทยจะได้ชื่อเป็น <code>xn--...</code> ซึ่งอ่านไม่รู้เรื่อง ตั้งเองจะดีกว่า
+      </p>
+
       <div class="row">
         <button class="ghost" id="btn-unpack" disabled>แตกไฟล์อีกครั้ง</button>
       </div>
@@ -831,7 +838,11 @@
 
     deployed = false;
     log("แตกไฟล์…");
-    const { code, lines } = await run("unpack", { zip: uploaded });
+
+    const wanted = $("slug").value.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+    if (wanted && wanted !== $("slug").value.trim()) $("slug").value = wanted;
+
+    const { code, lines } = await run("unpack", wanted ? { zip: uploaded, slug: wanted } : { zip: uploaded });
 
     if (code !== 0) {
       await swal({

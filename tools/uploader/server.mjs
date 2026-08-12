@@ -444,7 +444,8 @@ const server = createServer(async (req, res) => {
     const tool = (script, args, opts) => stream(res, process.execPath, [join(ROOT, "tools", script), ...args], opts);
 
     if (step === "unpack") {
-      tool("unpack.mjs", zip ? [zip] : []);
+      const wanted = String(url.searchParams.get("slug") || "").replace(/[^a-z0-9-]+/g, "");
+      tool("unpack.mjs", zip ? [zip, ...(wanted ? [wanted] : [])] : []);
 
       return;
     }

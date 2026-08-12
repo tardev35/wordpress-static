@@ -233,7 +233,11 @@ function savePrefs(next) {
 
 function json(res, code, body) {
   const payload = JSON.stringify(body);
-  res.writeHead(code, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(payload) });
+  res.writeHead(code, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": Buffer.byteLength(payload),
+    "cache-control": "no-store",
+  });
   res.end(payload);
 }
 
@@ -398,7 +402,7 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/") {
     const html = readFileSync(join(HERE, "index.html"));
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
     res.end(html);
 
     return;

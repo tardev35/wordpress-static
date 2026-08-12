@@ -195,6 +195,9 @@ class WPSE_Rewriter
             '/<link[^>]+rel=["\']dns-prefetch["\'][^>]*s\.w\.org[^>]*>\s*/i',
             '/<meta[^>]+name=["\']generator["\'][^>]*>\s*/i',
             '/<script[^>]+wp-emoji-release\.min\.js[^>]*>\s*<\/script>\s*/i',
+            // speculationrules ของ WP 6.8 เป็นบัญชี URL ที่ห้าม prefetch ซึ่งครึ่งหนึ่ง
+            // เป็น path ของหลังบ้านที่ static ไม่มีอยู่แล้ว เก็บไว้ก็ไม่ได้ทำอะไร
+            '/<script[^>]+type=["\']speculationrules["\'][^>]*>.*?<\/script>\s*/is',
         ];
 
         foreach ($kill as $re) {

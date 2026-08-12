@@ -3,7 +3,7 @@
  * Plugin Name: WP Static Export
  * Plugin URI:  https://example.local/wp-static-export
  * Description: ส่งออกเว็บทั้งเว็บเป็นไฟล์ static (HTML/CSS/JS/รูป) เป็นไฟล์ ZIP ไฟล์เดียว สำหรับเอาไปวางบน Cloudflare Workers
- * Version:     1.0.1
+ * Version:     1.0.2
  * Author:      tardev
  * Text Domain: wp-static-export
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('WPSE_VERSION', '1.0.1');
+define('WPSE_VERSION', '1.0.2');
 define('WPSE_FILE', __FILE__);
 define('WPSE_DIR', plugin_dir_path(__FILE__));
 define('WPSE_URL', plugin_dir_url(__FILE__));

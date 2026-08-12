@@ -18,6 +18,8 @@ const PAGE = /\.html?$/i;
 // ก่อนถึง Worker เสมอ จึงใช้งานได้จริงบนโดเมนปลายทาง ไม่ใช่ลิงก์ตาย
 const WP_ONLY = /wp-admin|wp-login\.php|xmlrpc\.php|wp-json|wp-cron\.php|^\/cdn-cgi\//i;
 
+const WP_BACKEND = ["/wp-admin/", "wp-login.php", "xmlrpc.php", "/wp-json/", "wp-cron.php"];
+
 // URL ที่มี scheme ซ้อนกัน เช่น https:https://... แปลว่า rewriter ต่อ URL ผิด
 // sitemap ที่มีบรรทัดแบบนี้ Google ทิ้งทั้งไฟล์ ไม่ใช่ข้ามทีละบรรทัด
 const DOUBLE_SCHEME = /https?:(?:\\?\/\\?\/)?https?:\\?\/[^\s"'<>)\]]*/i;
@@ -115,16 +117,27 @@ for (const rel of rels) {
 
   const isRobots = rel === "robots.txt";
 
-  for (const needle of ["/wp-admin/", "wp-login.php", "xmlrpc.php", "/wp-json/", "wp-cron.php"]) {
-    if (body.includes(needle)) {
-      // ใน robots.txt บรรทัดพวกนี้เป็นคำสั่งห้ามบอตเข้า ไม่ใช่ลิงก์ที่เว็บวิ่งไปหา
-      // ไม่มีอะไรพัง มีแค่ร่องรอยว่าเคยเป็น WordPress — ไม่ใช่เหตุให้ห้าม deploy
-      if (isRobots) {
-        warn(rel, `ยังมีบรรทัด ${needle} ของ WordPress ติดมา — ไม่มีผลกับเว็บ (export รุ่นใหม่ตัดให้แล้ว)`);
-      } else {
-        error(rel, `อ้างถึง ${needle} ซึ่งไม่มีอยู่บน static`);
-      }
-      break;
+  // ที่ต้องห้าม deploy คือ "ลิงก์" ที่พาคนไปหาหลังบ้าน WordPress ไม่ใช่ทุกที่ที่มีคำนี้โผล่
+  // ชื่อพวกนี้ยังอยู่ในที่ที่ไม่มีอะไรวิ่งไปหาอีกหลายแบบ: บรรทัด Disallow ของ robots.txt,
+  // รายการยกเว้นใน speculationrules ของ WP 6.8 (ซึ่งแปลว่า "อย่า prefetch" — ตรงข้ามกับลิงก์)
+  // และตัวแปร ajaxurl ของธีมที่บนเว็บ static ไม่มีสคริปต์ไหนเรียก
+  const linked = new Set();
+  for (const m of body.matchAll(/\s(?:href|src|action|poster)\s*=\s*["']([^"']+)["']/gi)) {
+    const hit = WP_BACKEND.find((w) => m[1].includes(w));
+    if (hit) linked.add(hit);
+  }
+
+  if (linked.size) {
+    error(rel, `ลิงก์ในหน้าชี้ไป ${[...linked].join(" · ")} ซึ่งไม่มีอยู่บน static`);
+  } else {
+    const hit = WP_BACKEND.find((w) => body.includes(w));
+    if (hit) {
+      warn(
+        rel,
+        isRobots
+          ? `ยังมีบรรทัด ${hit} ของ WordPress ติดมา — ไม่มีผลกับเว็บ (export รุ่นใหม่ตัดให้แล้ว)`
+          : `มี ${hit} อยู่ในสคริปต์ แต่ไม่ใช่ลิงก์ — บน static ไม่มีอะไรเรียกถึง`,
+      );
     }
   }
 

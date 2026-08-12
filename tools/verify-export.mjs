@@ -100,8 +100,49 @@ if (!present.has("404.html")) {
 // --- เนื้อไฟล์ ---
 
 const externalHosts = new Map();
+const dead = new Map();
 let pages = 0;
 let redirects = 0;
+
+/**
+ * URL ที่ดึงไม่สำเร็จตอน export พร้อมรหัสที่เว็บต้นทางตอบกลับมา
+ *
+ * ไฟล์ที่หายไปจาก dist มีสองแบบที่ต้องแยกกันให้ขาด: ของที่พังอยู่ก่อนแล้วบนเว็บเดิม
+ * (รูปถูกลบออกจากดิสก์แต่ยังถูกอ้างในเนื้อหา — เจอบ่อยมากกับเว็บที่ใช้งานมานาน) กับ
+ * ของที่หายเพราะ export เอง อย่างแรกต่อให้ export ใหม่กี่รอบก็ไม่กลับมา ต้องไปแก้ที่
+ * WordPress — บล็อก deploy ไว้ก็ไม่ได้ทำให้ใครแก้ได้เร็วขึ้น
+ */
+const originFailed = new Map();
+const reportPath = join(siteDir, "export-report.json");
+
+if (existsSync(reportPath)) {
+  try {
+    for (const f of readJson(reportPath).failed_urls || []) {
+      const p = pathKey(new URL(f.url).pathname);
+      if (p) originFailed.set(p, Number(f.http_code) || 0);
+    }
+  } catch {
+    /* ไม่มีรายงานหรืออ่านไม่ออก ก็ยังตรวจต่อได้ แค่แยกสาเหตุไม่ได้ */
+  }
+}
+
+/**
+ * ทำ path ให้อยู่รูปเดียวกันทั้งฝั่ง URL ของรายงานและฝั่งไฟล์ใน dist
+ *
+ * @param {string} p
+ * @returns {string}
+ */
+function pathKey(p) {
+  let s = String(p).replace(/[?#].*$/, "");
+
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    /* URL ที่ encode มาเพี้ยน ใช้ของเดิมไปเทียบตรงๆ */
+  }
+
+  return s.replace(/^\/+/, "").replace(/\/index\.html$/i, "").replace(/\/$/, "");
+}
 
 for (const rel of rels) {
   if (!TEXT.test(rel)) continue;
@@ -210,8 +251,25 @@ for (const rel of rels) {
 
     const target = resolveLink(link, rel);
     if (target && !present.has(target)) {
-      error(rel, `ลิงก์ไปหาไฟล์ที่ไม่มีอยู่: ${link}`);
+      // ของที่หายชิ้นเดียว (โลโก้ใน header, รูปใน footer) ถูกอ้างจากทุกหน้าในเว็บ
+      // ถ้าฟ้องทีละหน้า รายงานจะยาวเป็นหางว่าวโดยที่มีของต้องแก้อยู่ชิ้นเดียว
+      if (!dead.has(target)) dead.set(target, { link, pages: new Set() });
+      dead.get(target).pages.add(rel);
     }
+  }
+}
+
+for (const [target, { link, pages }] of dead) {
+  const first = [...pages][0];
+  const where = pages.size === 1 ? first : `${first} (+อีก ${pages.size - 1} หน้า)`;
+  const code = originFailed.get(pathKey(target));
+
+  if (code === 404 || code === 410) {
+    warn(where, `${link} ไม่มีอยู่ — เว็บต้นทางก็ตอบ ${code} อยู่แล้ว รูปนี้พังมาก่อน export ต้องไปแก้ที่ WordPress`);
+  } else if (code) {
+    error(where, `${link} ดึงมาไม่ได้ตอน export — เว็บต้นทางตอบ ${code} (403 มักแปลว่าไฟร์วอลล์บล็อกอยู่)`);
+  } else {
+    error(where, `ลิงก์ไปหาไฟล์ที่ไม่มีอยู่: ${link}`);
   }
 }
 

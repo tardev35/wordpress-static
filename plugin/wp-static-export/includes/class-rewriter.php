@@ -13,9 +13,10 @@ class WPSE_Rewriter
      *
      * @param string $content
      * @param string $kind html|css|xml|script
+     * @param string $rel  path ปลายทางในไฟล์ zip ใช้แยกไฟล์ที่ต้องแก้เป็นพิเศษ
      * @return string
      */
-    public static function apply($content, $kind)
+    public static function apply($content, $kind, $rel = '')
     {
         $settings = wpse_settings();
 
@@ -28,6 +29,10 @@ class WPSE_Rewriter
 
         if ($kind === 'xml') {
             $content = self::to_target($content);
+
+            if (basename(str_replace('\\', '/', $rel)) === 'robots.txt') {
+                $content = self::robots($content);
+            }
 
             return $content;
         }
@@ -46,13 +51,8 @@ class WPSE_Rewriter
      */
     public static function to_relative($content)
     {
-        foreach (self::origin_variants() as $variant) {
-            $content = str_replace($variant, '', $content);
-        }
-
-        foreach (self::escaped_variants() as $variant) {
-            $content = str_replace($variant, '', $content);
-        }
+        $content = preg_replace(self::origin_pattern(false), '', $content);
+        $content = preg_replace(self::origin_pattern(true), '', $content);
 
         foreach (self::encoded_variants() as $variant) {
             $content = str_replace($variant, rawurlencode(wpse_target()), $content);
@@ -69,17 +69,71 @@ class WPSE_Rewriter
      */
     public static function to_target($content)
     {
-        $target = wpse_target();
+        $target  = wpse_target();
+        $escaped = str_replace('/', '\/', $target);
 
-        foreach (self::origin_variants() as $variant) {
-            $content = str_replace($variant, $target, $content);
-        }
+        $content = preg_replace_callback(
+            self::origin_pattern(false),
+            function () use ($target) {
+                return $target;
+            },
+            $content
+        );
 
-        foreach (self::escaped_variants() as $variant) {
-            $content = str_replace($variant, str_replace('/', '\/', $target), $content);
-        }
+        $content = preg_replace_callback(
+            self::origin_pattern(true),
+            function () use ($escaped) {
+                return $escaped;
+            },
+            $content
+        );
 
         return $content;
+    }
+
+    /**
+     * โดเมนต้นทางทุกรูปแบบในนัดเดียว — https:// http:// และ //host (มี www หรือไม่มีก็ได้)
+     *
+     * ต้องเป็น regex ตัวเดียวจบในรอบเดียว ห้ามไล่ str_replace ทีละแบบ เพราะตอนที่โดเมน
+     * ปลายทางเท่ากับต้นทาง (ย้ายโฮสต์แต่ใช้โดเมนเดิม ซึ่งเป็นเคสปกติของงานนี้) รอบของ
+     * //host จะไปเจอ //host ที่ซ่อนอยู่ใน https://host ที่เพิ่งเขียนลงไปเอง แล้วเขียนทับ
+     * เป็น https:https://host ทั้ง sitemap และ feed
+     *
+     * @param bool $escaped จับรูปแบบที่ escape ไว้ใน JSON/JS (https:\/\/host)
+     * @return string
+     */
+    protected static function origin_pattern($escaped)
+    {
+        $host = strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST));
+        $bare = preg_quote(preg_replace('/^www\./', '', $host), '#');
+        $sep  = $escaped ? '\\\\/' : '/';
+
+        return '#(?:https?:)?' . $sep . $sep . '(?:www\.)?' . $bare . '#i';
+    }
+
+    /**
+     * robots.txt ของ WordPress สั่งห้ามบอตเข้าหลังบ้าน แต่บน static ไม่มีหลังบ้านให้เข้า
+     * บรรทัดพวกนั้นเลยเหลือค่าเป็นแค่ป้ายบอกคนอ่านว่าเว็บนี้เคยเป็น WordPress
+     *
+     * @param string $txt
+     * @return string
+     */
+    public static function robots($txt)
+    {
+        $dead = '#wp-admin|wp-login\.php|wp-json|xmlrpc\.php|wp-cron\.php|wp-signup\.php|wp-trackback\.php#i';
+
+        $out = [];
+        foreach (preg_split('/\r\n|\r|\n/', $txt) as $line) {
+            if (preg_match('/^\s*(?:dis)?allow\s*:/i', $line) && preg_match($dead, $line)) {
+                continue;
+            }
+            if (preg_match('/^(\s*sitemap\s*:\s*)(\S+)(.*)$/i', $line, $m)) {
+                $line = $m[1] . preg_replace('#(?<!:)/{2,}#', '/', $m[2]) . $m[3];
+            }
+            $out[] = $line;
+        }
+
+        return preg_replace('/\n{3,}/', "\n\n", implode("\n", $out));
     }
 
     /**
@@ -178,22 +232,6 @@ class WPSE_Rewriter
         $cache = $out;
 
         return $cache;
-    }
-
-    /**
-     * รูปแบบที่ถูก escape ไว้ใน JSON/JS เช่น https:\/\/example.com
-     *
-     * @return string[]
-     */
-    public static function escaped_variants()
-    {
-        $out = [];
-
-        foreach (self::origin_variants() as $v) {
-            $out[] = str_replace('/', '\/', $v);
-        }
-
-        return $out;
     }
 
     /**

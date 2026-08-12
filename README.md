@@ -159,6 +159,10 @@ npm run zip:plugin
 ต้องมีบนเซิร์ฟเวอร์: PHP 7.4 ขึ้นไป และ **PHP zip extension** (`ZipArchive`)
 ถ้าไม่มี zip หน้า admin จะเตือนตั้งแต่เปิดเข้ามา
 
+> **เว็บที่เคยติดตั้งไว้แล้ว ให้ติดตั้งทับด้วย zip ตัวใหม่ก่อน export รอบถัดไป**
+> เลขเวอร์ชันโชว์อยู่ข้างหัวข้อ *Static Export* ในหน้า admin เทียบกับ `Version:` ใน
+> `plugin/wp-static-export/wp-static-export.php` ได้ว่าเว็บนั้นใช้ตัวเก่าอยู่หรือเปล่า
+
 ---
 
 ## ② กด export

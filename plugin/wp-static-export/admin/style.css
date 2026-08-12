@@ -96,3 +96,11 @@
     word-break: break-all;
     margin: 0 0 10px;
 }
+
+.wpse-ver {
+    font-size: 12px;
+    font-weight: 400;
+    color: #646970;
+    vertical-align: middle;
+    margin-left: 6px;
+}

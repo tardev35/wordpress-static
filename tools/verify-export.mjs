@@ -18,6 +18,10 @@ const PAGE = /\.html?$/i;
 // ก่อนถึง Worker เสมอ จึงใช้งานได้จริงบนโดเมนปลายทาง ไม่ใช่ลิงก์ตาย
 const WP_ONLY = /wp-admin|wp-login\.php|xmlrpc\.php|wp-json|wp-cron\.php|^\/cdn-cgi\//i;
 
+// URL ที่มี scheme ซ้อนกัน เช่น https:https://... แปลว่า rewriter ต่อ URL ผิด
+// sitemap ที่มีบรรทัดแบบนี้ Google ทิ้งทั้งไฟล์ ไม่ใช่ข้ามทีละบรรทัด
+const DOUBLE_SCHEME = /https?:(?:\\?\/\\?\/)?https?:\\?\/[^\s"'<>)\]]*/i;
+
 const slug = process.argv.slice(2).find((a) => !a.startsWith("-"));
 
 if (!slug) {
@@ -109,10 +113,45 @@ for (const rel of rels) {
     }
   }
 
+  const isRobots = rel === "robots.txt";
+
   for (const needle of ["/wp-admin/", "wp-login.php", "xmlrpc.php", "/wp-json/", "wp-cron.php"]) {
     if (body.includes(needle)) {
-      error(rel, `อ้างถึง ${needle} ซึ่งไม่มีอยู่บน static`);
+      // ใน robots.txt บรรทัดพวกนี้เป็นคำสั่งห้ามบอตเข้า ไม่ใช่ลิงก์ที่เว็บวิ่งไปหา
+      // ไม่มีอะไรพัง มีแค่ร่องรอยว่าเคยเป็น WordPress — ไม่ใช่เหตุให้ห้าม deploy
+      if (isRobots) {
+        warn(rel, `ยังมีบรรทัด ${needle} ของ WordPress ติดมา — ไม่มีผลกับเว็บ (export รุ่นใหม่ตัดให้แล้ว)`);
+      } else {
+        error(rel, `อ้างถึง ${needle} ซึ่งไม่มีอยู่บน static`);
+      }
       break;
+    }
+  }
+
+  const doubled = body.match(DOUBLE_SCHEME);
+  if (doubled) {
+    error(rel, `URL ต่อ scheme ซ้ำ: ${doubled[0].slice(0, 80)} — ต้อง export ใหม่ด้วย plugin รุ่นล่าสุด`);
+  }
+
+  if (isRobots) {
+    for (const m of body.matchAll(/^[ \t]*sitemap[ \t]*:[ \t]*(\S+)/gim)) {
+      if (DOUBLE_SCHEME.test(m[1])) continue;
+
+      let file;
+      try {
+        const u = new URL(m[1]);
+        if (targetHost && u.host !== targetHost) {
+          error(rel, `Sitemap: ชี้ไปโดเมน ${u.host} ไม่ใช่ ${targetHost}`);
+          continue;
+        }
+        file = decodeURIComponent(u.pathname).replace(/\/{2,}/g, "/").replace(/^\//, "");
+      } catch {
+        error(rel, `บรรทัด Sitemap: ไม่ใช่ URL ที่ใช้ได้ — ${m[1].slice(0, 80)}`);
+        continue;
+      }
+      if (file && !present.has(file)) {
+        error(rel, `Sitemap: ชี้ไป /${file} แต่ไม่มีไฟล์นั้นใน dist`);
+      }
     }
   }
 

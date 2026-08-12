@@ -10,7 +10,7 @@ if (!defined('ABSPATH')) {
 $running = $job && $job['phase'] !== WPSE_Job::PHASE_DONE;
 ?>
 <div class="wrap wpse-wrap">
-    <h1>Static Export</h1>
+    <h1>Static Export <span class="wpse-ver">v<?php echo esc_html(WPSE_VERSION); ?></span></h1>
     <p class="wpse-lead">
         ดึงทุกหน้าของเว็บนี้ออกมาเป็นไฟล์ static แล้วแพ็กเป็น ZIP ไฟล์เดียว
         สำหรับเอาไปวางบน Cloudflare Workers — ผลที่ได้คือหน้าเว็บที่ render แล้วจริงๆ

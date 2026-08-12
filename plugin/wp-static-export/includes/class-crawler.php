@@ -128,7 +128,7 @@ class WPSE_Crawler
         }
 
         if ($kind !== 'binary') {
-            $body = WPSE_Rewriter::apply($body, $kind);
+            $body = WPSE_Rewriter::apply($body, $kind, $rel);
         }
 
         $bytes = WPSE_Writer::write($job['dir'], $rel, $body);

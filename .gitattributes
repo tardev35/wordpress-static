@@ -1,0 +1,10 @@
+# ไฟล์ที่ cmd.exe เป็นคนอ่าน ต้องจบบรรทัดด้วย CRLF เสมอ
+#
+# git เก็บทุกอย่างเป็น LF โดยปริยาย และ ZIP ที่โหลดจากหน้าเว็บ GitLab คือ blob ดิบ
+# ไม่ผ่านการแปลงตอน checkout — batch file ที่จบบรรทัดด้วย LF อย่างเดียว cmd.exe
+# จะอ่านบรรทัดแรกไม่ออกแล้วพังทั้งไฟล์ ("'ho' is not recognized")
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# ไฟล์ข้อความที่ .cmd เรียกด้วย type ก็ให้ตรงกันไว้
+tools/uploader/*.txt text eol=crlf
